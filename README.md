@@ -1,272 +1,100 @@
+# yyjson
 
-# Introduction
+A fork of [yyjson](https://github.com/ibireme/yyjson) with personal modifications.
 
-[![Build](https://img.shields.io/github/actions/workflow/status/ibireme/yyjson/checks.yml?branch=master&style=flat-square)](https://github.com/ibireme/yyjson/actions/workflows/checks.yml)
-[![Codecov](https://img.shields.io/codecov/c/github/ibireme/yyjson/master?style=flat-square)](https://codecov.io/gh/ibireme/yyjson)
-[![License](https://img.shields.io/github/license/ibireme/yyjson?color=blue&style=flat-square)](https://github.com/ibireme/yyjson/blob/master/LICENSE)
-[![Version](https://img.shields.io/github/v/release/ibireme/yyjson?color=orange&style=flat-square)](https://github.com/ibireme/yyjson/releases)
-[![Packaging status](https://img.shields.io/repology/repositories/yyjson.svg?style=flat-square)](https://repology.org/project/yyjson/versions)
+Please be aware that this repository is for my own personal usages only and thus will never accept any kinds of feature requests and bug reports.
 
-A high performance JSON library written in ANSI C.
+## Changes compared to the original project
 
-# Features
-- **Fast**: can read or write gigabytes of JSON data per second on modern CPUs.
-- **Portable**: complies with ANSI C (C89), no explicit SIMD.
-- **Strict**: complies with [RFC 8259](https://datatracker.ietf.org/doc/html/rfc8259) JSON standard, ensuring strict number formats and UTF-8 validation.
-- **Extendable**: offers options to enable individual [JSON5](https://json5.org) features and a custom allocator.
-- **Accuracy**: can accurately read and write `int64`, `uint64`, and `double` numbers.
-- **Flexible**: supports unlimited JSON nesting levels, `\u0000` characters, and non-null-terminated strings.
-- **Manipulation**: supports querying and modifying with [JSON Pointer](https://datatracker.ietf.org/doc/html/rfc6901), [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902), and [JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7386).
-- **Developer-Friendly**: easy integration with just one `.h` and one `.c` file.
+- Removed all unused files.
+- Added a header-only C++17 wrapper.
+- Added a workspace for reusing reader and writer buffers.
 
-# Limitations
-- An array or object is stored as a [data structure](https://ibireme.github.io/yyjson/doc/doxygen/html/data-structures.html) such as linked list, which makes accessing elements by index or key slower than using an iterator.
-- Duplicate keys are allowed in an object, and the order of the keys is preserved.
-- JSON parsing results are immutable, requiring a mutable copy for modification.
+## C++ usage
 
-# Performance
-Benchmark project and dataset: [yyjson_benchmark](https://github.com/ibireme/yyjson_benchmark)
+Include `yyjson.hpp` and link the existing yyjson library. The wrapper owns
+documents and serialized buffers through RAII. Value and string views borrow
+from their document. Keep the input buffer alive for `parse_in_situ()`.
+Array and object ranges expose their size in constant time and work with
+standard algorithms, including `std::ranges` algorithms in C++20 and later.
 
-The simdjson's new `On Demand` API is faster if most JSON fields are known at compile-time.
-This benchmark project only checks the DOM API, a new benchmark will be added later.
+```cpp
+#include <yyjson.hpp>
 
-#### AWS EC2 (AMD EPYC 7R32, gcc 9.3)
-![ec2_chart](doc/images/perf_reader_ec2.svg)
-
-|twitter.json|parse (GB/s)|stringify (GB/s)|
-|---|---|---|
-|yyjson(insitu)|1.80|1.51|
-|yyjson|1.72|1.42|
-|simdjson|1.52|0.61|
-|sajson|1.16|   |
-|rapidjson(insitu)|0.77|   |
-|rapidjson(utf8)|0.26|0.39|
-|cjson|0.32|0.17|
-|jansson|0.05|0.11|
-
-
-#### iPhone (Apple A14, clang 12)
-![a14_chart](doc/images/perf_reader_a14.svg)
-
-|twitter.json|parse (GB/s)|stringify (GB/s)|
-|---|---|---|
-|yyjson(insitu)|3.51|2.41|
-|yyjson|2.39|2.01|
-|simdjson|2.19|0.80|
-|sajson|1.74||
-|rapidjson(insitu)|0.75| |
-|rapidjson(utf8)|0.30|0.58|
-|cjson|0.48|0.33|
-|jansson|0.09|0.24|
-
-More benchmark reports with interactive charts (last updated 2020-12-12)
-
-|Platform|CPU|Compiler|OS|Report|
-|---|---|---|---|---|
-|Intel NUC 8i5|Core i5-8259U|msvc 2019|Windows 10 2004|[Charts](https://ibireme.github.io/yyjson_benchmark/reports/Intel_NUC_8i5_msvc_2019.html)|
-|Intel NUC 8i5|Core i5-8259U|clang 10.0|Ubuntu 20.04|[Charts](https://ibireme.github.io/yyjson_benchmark/reports/Intel_NUC_8i5_clang_10.html)|
-|Intel NUC 8i5|Core i5-8259U|gcc 9.3|Ubuntu 20.04|[Charts](https://ibireme.github.io/yyjson_benchmark/reports/Intel_NUC_8i5_gcc_9.html)|
-|AWS EC2 c5a.large|AMD EPYC 7R32|gcc 9.3|Ubuntu 20.04|[Charts](https://ibireme.github.io/yyjson_benchmark/reports/EC2_c5a.large_gcc_9.html)|
-|AWS EC2 t4g.medium|Graviton2 (ARM64)|gcc 9.3|Ubuntu 20.04|[Charts](https://ibireme.github.io/yyjson_benchmark/reports/EC2_t4g.medium_gcc_9.html)|
-|Apple iPhone 12 Pro|A14 (ARM64)|clang 12.0|iOS 14|[Charts](https://ibireme.github.io/yyjson_benchmark/reports/Apple_A14_clang_12.html)|
-
-### For better performance, yyjson prefers:
-* A modern processor with:
-    * high instruction level parallelism
-    * excellent branch predictor
-    * low penalty for misaligned memory access
-* A modern compiler with good optimizer (e.g. clang)
-
-
-# Sample Code
-
-### Read JSON string
-```c
-const char *json = "{\"name\":\"Mash\",\"star\":4,\"hits\":[2,2,1,3]}";
-
-// Read JSON and get root
-yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
-yyjson_val *root = yyjson_doc_get_root(doc);
-
-// Get root["name"]
-yyjson_val *name = yyjson_obj_get(root, "name");
-printf("name: %s\n", yyjson_get_str(name));
-printf("name length:%d\n", (int)yyjson_get_len(name));
-
-// Get root["star"]
-yyjson_val *star = yyjson_obj_get(root, "star");
-printf("star: %d\n", (int)yyjson_get_int(star));
-
-// Get root["hits"], iterate over the array
-yyjson_val *hits = yyjson_obj_get(root, "hits");
-size_t idx, max;
-yyjson_val *hit;
-yyjson_arr_foreach(hits, idx, max, hit) {
-    printf("hit%d: %d\n", (int)idx, (int)yyjson_get_int(hit));
-}
-
-// Free the doc
-yyjson_doc_free(doc);
-
-// All functions accept NULL input, and return NULL on error.
-```
-
-### Write JSON string
-```c
-// Create a mutable doc
-yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
-yyjson_mut_val *root = yyjson_mut_obj(doc);
-yyjson_mut_doc_set_root(doc, root);
-
-// Set root["name"] and root["star"]
-yyjson_mut_obj_add_str(doc, root, "name", "Mash");
-yyjson_mut_obj_add_int(doc, root, "star", 4);
-
-// Set root["hits"] with an array
-int hits_arr[] = {2, 2, 1, 3};
-yyjson_mut_val *hits = yyjson_mut_arr_with_sint32(doc, hits_arr, 4);
-yyjson_mut_obj_add_val(doc, root, "hits", hits);
-
-// To string, minified
-const char *json = yyjson_mut_write(doc, 0, NULL);
-if (json) {
-    printf("json: %s\n", json); // {"name":"Mash","star":4,"hits":[2,2,1,3]}
-    free((void *)json);
-}
-
-// Free the doc
-yyjson_mut_doc_free(doc);
-```
-
-### Read JSON file with options
-```c
-// Read JSON file, allowing comments and trailing commas
-yyjson_read_flag flg = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS;
-yyjson_read_err err;
-yyjson_doc *doc = yyjson_read_file("/tmp/config.json", flg, NULL, &err);
-
-// Iterate over the root object
+auto doc = yyjson::document::parse(R"({"items":[1,2,3]})");
 if (doc) {
-    yyjson_val *obj = yyjson_doc_get_root(doc);
-    yyjson_obj_iter iter;
-    yyjson_obj_iter_init(obj, &iter);
-    yyjson_val *key, *val;
-    while ((key = yyjson_obj_iter_next(&iter))) {
-        val = yyjson_obj_iter_get_val(key);
-        printf("%s: %s\n", yyjson_get_str(key), yyjson_get_type_desc(val));
+    for (auto item : doc.root()["items"].elements()) {
+        auto number = item.as_uint();
+        // Use number.
     }
-} else {
-    printf("read error (%u): %s at position: %ld\n", err.code, err.msg, err.pos);
+    auto output = doc.dump(YYJSON_WRITE_PRETTY);
+    // Use output.view() while output is alive.
 }
-
-// Free the doc
-yyjson_doc_free(doc);
 ```
 
-### Write JSON file with options
-```c
-// Read the JSON file as a mutable doc
-yyjson_doc *idoc = yyjson_read_file("/tmp/config.json", 0, NULL, NULL);
-yyjson_mut_doc *doc = yyjson_doc_mut_copy(idoc, NULL);
-yyjson_mut_val *obj = yyjson_mut_doc_get_root(doc);
+`yyjson::mutable_document::create()` builds a document using the C arena.
+`native_handle()` gives direct access to the C APIs, and `release()` passes
+document ownership to the caller. The wrapper passes flags and optional error
+objects through to yyjson. `dump()` uses the C++ runtime allocator by default
+and also accepts a `yyjson_alc`. Keep a custom allocator's context alive until
+the output is destroyed.
 
-// Remove null values in root object
-yyjson_mut_obj_iter iter;
-yyjson_mut_obj_iter_init(obj, &iter);
-yyjson_mut_val *key, *val;
-while ((key = yyjson_mut_obj_iter_next(&iter))) {
-    val = yyjson_mut_obj_iter_get_val(key);
-    if (yyjson_mut_is_null(val)) {
-        yyjson_mut_obj_iter_remove(&iter);
+## Reusing buffers
+
+Give each worker its own `yyjson_workspace` and reuse it across documents.
+In C, read with `yyjson_workspace_read()` or
+`yyjson_workspace_read_in_situ()`, then pass a value to
+`yyjson_workspace_write()`. Use `yyjson_workspace_free()` when finished.
+When compiling the library by hand, compile `src/yyjson_workspace.c` alongside
+`src/yyjson.c` to use this API.
+
+The C++ wrapper also manages the workspace lifetime.
+
+```cpp
+#include <yyjson.hpp>
+#include <cstring>
+
+auto work = yyjson::workspace::create(1024 * 1024);
+char input[64] = R"({"items":[1,2,3]})";
+
+if (work) {
+    if (auto root = work.parse_in_situ(input, std::strlen(input), sizeof(input))) {
+        auto output = work.dump(root);
+        // Consume output before the next dump or reset.
     }
+    work.reset();
 }
-
-// Write the JSON with pretty printing, escape unicode
-yyjson_write_flag flg = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
-yyjson_write_err err;
-yyjson_mut_write_file("/tmp/config.json", doc, flg, NULL, &err);
-if (err.code) {
-    printf("write error (%u): %s\n", err.code, err.msg);
-}
-
-// Free the doc
-yyjson_doc_free(idoc);
-yyjson_mut_doc_free(doc);
 ```
 
-# Documentation
-The latest (unreleased) documentation can be accessed in the [doc](https://github.com/ibireme/yyjson/tree/master/doc) directory.
-The pre-generated Doxygen HTML for the release version can be viewed here:
-* [Home Page](https://ibireme.github.io/yyjson/doc/doxygen/html/)
-    * [Build and test](https://ibireme.github.io/yyjson/doc/doxygen/html/building-and-testing.html)
-    * [API and sample code](https://ibireme.github.io/yyjson/doc/doxygen/html/api.html)
-    * [Data structure](https://ibireme.github.io/yyjson/doc/doxygen/html/data-structures.html)
-    * [Changelog](https://ibireme.github.io/yyjson/doc/doxygen/html/changelog.html)
+A parse invalidates the previous document, and a write invalidates the previous
+output. Reset invalidates both. Keep an in-situ buffer alive while its document
+is in use. The cache limit bounds retained buffer capacity after reset. Active
+documents and output may temporarily exceed it.
 
-# Packaging status
+## License
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/yyjson.svg?columns=3)](https://repology.org/project/yyjson/versions)
+```text
+MIT License
 
-# Built With yyjson
+Copyright (C) 2026 wangwenx190 (Yuhang ZHAO)
 
-A non-exhaustive list of projects that expose yyjson to other languages or
-use yyjson internally for a major feature. If you have a project that uses
-yyjson, feel free to open a PR to add it to this list.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-| Project          | Language     | Description                                                                                          |
-|------------------|--------------|------------------------------------------------------------------------------------------------------|
-| [ssrJSON][]      | Python       | A SIMD boosted high-performance and correct Python JSON parsing library, built on top of yyjson      |
-| [py_yyjson][]    | Python       | Python bindings for yyjson                                                                           |
-| [orjson][]       | Python       | JSON library for Python with an optional yyjson backend                                              |
-| [serin][]        | C++ / Python | A C++ and Python serialization library supporting TOON, JSON, and YAML with cross-format conversion. |
-| [cpp-yyjson][]   | C++          | C++ JSON library with a yyjson backend                                                               |
-| [reflect-cpp][]  | C++          | C++ library for serialization through automated field name retrieval from structs                    |
-| [xyjson][]       | C++          | C++ proxy and wrapper for yyjson with convenient operator overloading                                |
-| [yyjsonr][]      | R            | R binding for yyjson                                                                                 |
-| [Ananda][]       | Swift        | JSON model decoding based on yyjson                                                                  |
-| [ReerJSON][]     | Swift        | A faster version of JSONDecoder based on yyjson                                                      |
-| [swift-yyjson][] | Swift        | A fast JSON library for Swift, powered by yyjson                                                     |
-| [duckdb][]       | C++          | DuckDB is an in-process SQL OLAP Database Management System                                          |
-| [fastfetch][]    | C            | A neofetch-like tool for fetching system information and displaying it in a pretty way             |
-| [Zrythm][]       | C            | Digital Audio Workstation that uses yyjson to serialize JSON project files                           |
-| [bemorehuman][]  | C            | Recommendation engine with a focus on uniqueness of the person receiving the rec                     |
-| [mruby-yyjson][] | mruby        | Efficient JSON parsing and serialization library for mruby using yyjson                              |
-| [YYJSON.jl][]    | Julia        | Julia bindings for yyjson                                                                            |
-| [yyjson-go][]    | Go           | yyjson for Go, transpiled, CGo-free, 2-4x faster.                                                    |
-| [nim-yyjson][]   | Nim          | Thin Nim bindings for yyjson                                                                         |
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-# TODO for v1.0
-* [x] Add documentation page.
-* [x] Add GitHub workflow for CI and codecov.
-* [x] Add more tests: valgrind, sanitizer, fuzzing.
-* [x] Support JSON Pointer to query and modify JSON.
-* [x] Add `RAW` type for JSON reader and writer.
-* [x] Add option to limit real number output precision.
-* [x] Add option to support JSON5.
-* [ ] Add streaming JSON API.
-* [ ] Add functions to diff two JSON documents.
-* [ ] Add documentation on performance optimizations.
-* [ ] Ensure ABI stability.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
-# License
-This project is released under the MIT license.
-
-[ssrJSON]: https://github.com/Antares0982/ssrJSON
-[py_yyjson]: https://github.com/tktech/py_yyjson
-[orjson]: https://github.com/ijl/orjson
-[serin]: https://github.com/mohammadraziei/serin
-[cpp-yyjson]: https://github.com/yosh-matsuda/cpp-yyjson
-[reflect-cpp]: https://github.com/getml/reflect-cpp
-[xyjson]: https://github.com/lymslive/xyjson
-[yyjsonr]: https://github.com/coolbutuseless/yyjsonr
-[Ananda]: https://github.com/nixzhu/Ananda
-[ReerJSON]: https://github.com/reers/ReerJSON
-[swift-yyjson]: https://github.com/mattt/swift-yyjson
-[duckdb]: https://github.com/duckdb/duckdb
-[fastfetch]: https://github.com/fastfetch-cli/fastfetch
-[Zrythm]: https://github.com/zrythm/zrythm
-[bemorehuman]: https://github.com/BeMoreHumanOrg/bemorehuman
-[mruby-yyjson]: https://github.com/buty4649/mruby-yyjson
-[YYJSON.jl]: https://github.com/bhftbootcamp/YYJSON.jl
-[yyjson-go]: https://github.com/dwisiswant0/yyjson
-[nim-yyjson]: https://github.com/zystem/nim-yyjson
+This MIT license only apply to my own personal modifications, the original code of yyjson still use its original license.

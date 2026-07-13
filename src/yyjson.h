@@ -796,6 +796,34 @@ typedef struct yyjson_mut_doc yyjson_mut_doc;
  */
 typedef struct yyjson_mut_val yyjson_mut_val;
 
+#if !YYJSON_DISABLE_READER || !YYJSON_DISABLE_WRITER
+
+/**
+ Reusable storage for one parsed document and one serialized result.
+ Use a separate workspace for each concurrent operation.
+ */
+typedef struct yyjson_workspace yyjson_workspace;
+
+/**
+ Create a workspace. Pass NULL for the default allocator. A custom allocator's
+ context must outlive the workspace.
+
+ `cache_limit` is the limit in bytes for buffers retained after reset. Active
+ documents and results may use more memory. The workspace object and any
+ memory retained by the backing allocator are separate. Zero disables buffer
+ retention on reset. Returns NULL on allocation failure.
+ */
+yyjson_api yyjson_workspace *yyjson_workspace_new(size_t cache_limit,
+                                                   const yyjson_alc *alc);
+
+/** Invalidate all borrowed data and retain buffers within the cache limit. */
+yyjson_api void yyjson_workspace_reset(yyjson_workspace *work);
+
+/** Invalidate all borrowed data and release the workspace and its buffers. */
+yyjson_api void yyjson_workspace_free(yyjson_workspace *work);
+
+#endif
+
 
 
 /*==============================================================================
@@ -1008,6 +1036,26 @@ yyjson_api yyjson_doc *yyjson_read_opts(char *dat,
                                         yyjson_read_flag flg,
                                         const yyjson_alc *alc,
                                         yyjson_read_err *err);
+
+/**
+ Read a copy of the input. The returned document belongs to the workspace and
+ is valid until the next workspace read, reset, or free. All read flags except
+ YYJSON_READ_INSITU are passed through. Returns NULL on error.
+ */
+yyjson_api const yyjson_doc *yyjson_workspace_read(yyjson_workspace *work,
+                                                   const char *dat, size_t len,
+                                                   yyjson_read_flag flg,
+                                                   yyjson_read_err *err);
+
+/**
+ Read from a writable buffer without copying it. `capacity` includes at least
+ YYJSON_PADDING_SIZE bytes after the logical input. Keep the buffer available
+ for the lifetime of the returned document. The reader may modify the input,
+ including on failure. Document ownership is the same as workspace_read().
+ */
+yyjson_api const yyjson_doc *yyjson_workspace_read_in_situ(
+    yyjson_workspace *work, char *dat, size_t len, size_t capacity,
+    yyjson_read_flag flg, yyjson_read_err *err);
 
 #if !YYJSON_FREESTANDING && !YYJSON_DISABLE_FILE
 
@@ -1397,6 +1445,18 @@ yyjson_api char *yyjson_write_opts(const yyjson_doc *doc,
                                    const yyjson_alc *alc,
                                    size_t *len,
                                    yyjson_write_err *err);
+
+/**
+ Serialize a value into reusable workspace storage. The null-terminated result
+ is valid until the next workspace write, reset, or free. The value's storage
+ must not overlap the workspace output buffer. Returns NULL on error. `len`
+ may be NULL. When supplied, it receives the length excluding the terminator.
+ */
+yyjson_api const char *yyjson_workspace_write(yyjson_workspace *work,
+                                              const yyjson_val *val,
+                                              yyjson_write_flag flg,
+                                              size_t *len,
+                                              yyjson_write_err *err);
 
 #if !YYJSON_FREESTANDING && !YYJSON_DISABLE_FILE
 

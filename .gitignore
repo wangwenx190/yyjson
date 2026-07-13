@@ -1,105 +1,99 @@
-# CMake
-/build
-CMakeLists.txt.user
-CMakeCache.txt
-CMakeFiles
-CMakeScripts
-Testing
-Makefile
-cmake_install.cmake
-install_manifest.txt
-compile_commands.json
-CTestTestfile.cmake
-_deps
-
-# GCC coverage testing tool files
-*.gcno
-*.gcda
-*.gcov
-
-# VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-.cache
-
-# JetBrains
-.idea
-
-# CLion
-cmake-build-*/
-
-# Xcode
-/xcode
-.build/
-xcuserdata/
-*.xcscmblueprint
-*.xccheckout
-DerivedData/
-*.moved-aside
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
-Carthage/Build/
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-iOSInjectionProject/
-
-# Prerequisites
-*.d
-
-# Object files
+# C++ objects and libs
+*.slo
+*.lo
 *.o
-*.ko
-*.obj
-*.elf
-
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Libraries
-*.lib
 *.a
 *.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
+*.lai
 *.so
 *.so.*
+*.dll
 *.dylib
 
-# Executables
+# Qt-es
+object_script.*.Release
+object_script.*.Debug
+*_plugin_import.cpp
+/.qmake.cache
+/.qmake.stash
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+Makefile*
+*build-*
+*.qm
+*.prl
+
+# Qt unit tests
+target_wrapper.*
+
+# QtCreator
+*.autosave
+
+# QtCreator Qml
+*.qmlproject.user
+*.qmlproject.user.*
+
+# QtCreator CMake
+CMakeLists.txt.user*
+
+# QtCreator 4.8< compilation database
+compile_commands.json
+
+# My
+[Bb]in/
+[Bb]in32/
+[Bb]in64/
+[Ll]ib/
+[Ll]ib32/
+[Ll]ib64/
+[Tt]est/
+[Tt]ests/
+[Ii]nstall/
+[Ii]nstall32/
+[Ii]nstall64/
+[Bb]uild*/
+[Oo]utput*/
+[Pp]ublish*/
+*.7z
+*.zip
+*.rar
+*.tar
+*.gz
+*.xz
+*.iso
+*.wim
 *.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
+*.lib
 *.pdb
-
-# OS
-.DS_Store
-.Spotlight-V100
-.Trashes
+*.ilk
+*.exp
+*.obj
+*.res
+*.rc
+!yyjson.rc
+*.bin
+*.run
 Thumbs.db
+build.user.bat
+build.user.sh
+user.conf
+.qmake.conf
+.cmake.conf
+.DS_Store
+.vscode/
+.vs/
+.idea/
+.cache/
+.clion/
+build_for_deploy/
+.qmlls.ini
+!buildtest.bat

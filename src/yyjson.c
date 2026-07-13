@@ -4865,6 +4865,36 @@ static_inline bool read_uni_esc(u8 **src_ptr, u8 **dst_ptr, const char **msg) {
 #undef return_err
 }
 
+/* Keep word loads inside the input. The scalar parser handles the public
+   padding and all platforms without efficient little-endian word access. */
+#if YYJSON_ENDIAN == YYJSON_LITTLE_ENDIAN && \
+    !YYJSON_DISABLE_UNALIGNED_MEMORY_ACCESS && !YYJSON_FREESTANDING && \
+    (defined(__LP64__) || defined(_WIN64)) && \
+    (GCC_HAS_CTZLL || MSC_HAS_BIT_SCAN_64)
+#define YYJSON_READ_WORD_SCAN 1
+
+/** Find the end of an ASCII run after the initial scalar scan. */
+static_noinline u8 *read_ascii_long(u8 *cur, const u8 *end) {
+    while (end - cur >= 8) {
+        u64 word, quote_or_ctrl, backslash, stop;
+        memcpy(&word, cur, 8);
+        /* XOR maps '"' to 0x20 and preserves the range of control bytes. */
+        quote_or_ctrl = (word ^ U64(0x02020202, 0x02020202)) -
+                        U64(0x21212121, 0x21212121);
+        backslash = (word ^ U64(0x5C5C5C5C, 0x5C5C5C5C)) -
+                    U64(0x01010101, 0x01010101);
+        /* A borrow can only introduce another match after the first one. */
+        stop = (word | quote_or_ctrl | backslash) & U64(0x80808080, 0x80808080);
+        if (stop) return cur + u64_tz_bits(stop) / 8;
+        cur += 8;
+    }
+    while (cur < end && char_is_ascii_skip(*cur)) cur++;
+    return cur;
+}
+#else
+#define YYJSON_READ_WORD_SCAN 0
+#endif
+
 /**
  Read a JSON string.
  @param quo The quote character (single quote or double quote).
@@ -4874,10 +4904,12 @@ static_inline bool read_uni_esc(u8 **src_ptr, u8 **dst_ptr, const char **msg) {
  @param val The string value to be written.
  @param msg The error message pointer.
  @param con Continuation for incremental parsing.
+ @param scan_long Use the word scanner after a plain ASCII prefix.
  @return Whether success.
  */
 static_inline bool read_str_opt(u8 quo, u8 **ptr, u8 *eof, yyjson_read_flag flg,
-                                yyjson_val *val, const char **msg, u8 *con[2]) {
+                                yyjson_val *val, const char **msg, u8 *con[2],
+                                bool scan_long) {
     /*
      GCC may sometimes load variables into registers too early, causing
      unnecessary instructions and performance degradation. This inline assembly
@@ -4898,6 +4930,9 @@ static_inline bool read_str_opt(u8 quo, u8 **ptr, u8 *eof, yyjson_read_flag flg,
     u8 **end = ptr;
     u8 *src = hdr, *dst = NULL, *pos;
     u32 uni, tmp;
+#if !YYJSON_READ_WORD_SCAN
+    (void)scan_long;
+#endif
 
     /* Resume incremental parsing. */
     if (con && unlikely(con[0])) {
@@ -4932,6 +4967,12 @@ skip_ascii:
 
     repeat16_incr(expr_jump)
     src += 16;
+#if YYJSON_READ_WORD_SCAN
+    if (scan_long) {
+        src = read_ascii_long(src, eof);
+        goto skip_ascii_end;
+    }
+#endif
     goto skip_ascii;
     repeat16_incr(expr_stop)
 
@@ -5200,17 +5241,17 @@ copy_utf8:
 
 static_inline bool read_str(u8 **ptr, u8 *eof, yyjson_read_flag flg,
                             yyjson_val *val, const char **msg) {
-    return read_str_opt('\"', ptr, eof, flg, val, msg, NULL);
+    return read_str_opt('\"', ptr, eof, flg, val, msg, NULL, false);
 }
 
 static_inline bool read_str_con(u8 **ptr, u8 *eof, yyjson_read_flag flg,
                                 yyjson_val *val, const char **msg, u8 **con) {
-    return read_str_opt('\"', ptr, eof, flg, val, msg, con);
+    return read_str_opt('\"', ptr, eof, flg, val, msg, con, false);
 }
 
 static_noinline bool read_str_sq(u8 **ptr, u8 *eof, yyjson_read_flag flg,
                                  yyjson_val *val, const char **msg) {
-    return read_str_opt('\'', ptr, eof, flg, val, msg, NULL);
+    return read_str_opt('\'', ptr, eof, flg, val, msg, NULL, false);
 }
 
 /** Read unquoted key (identifier name). */
@@ -5473,7 +5514,7 @@ fail_depth:         return_err(cur, DEPTH, MSG_DEPTH);
 static_inline yyjson_doc *read_root_minify(u8 *hdr, u8 *cur, u8 *eof,
                                            yyjson_alc alc,
                                            yyjson_read_flag flg,
-                                           yyjson_read_err *err) {
+                                           yyjson_read_err *err, bool scan_long) {
 #define return_err(_pos, _code, _msg) do { \
     if (is_truncated_end(hdr, _pos, eof, YYJSON_READ_ERROR_##_code, flg)) { \
         err->pos = (usize)(eof - hdr); \
@@ -5591,7 +5632,8 @@ arr_val_begin:
     if (*cur == '"') {
         val_incr();
         ctn_len++;
-        if (likely(read_str(&cur, eof, flg, val, &msg))) goto arr_val_end;
+        if (likely(read_str_opt('"', &cur, eof, flg, val, &msg,
+                                NULL, scan_long))) goto arr_val_end;
         goto fail_string;
     }
     if (*cur == 't') {
@@ -5706,7 +5748,8 @@ obj_key_begin:
     if (likely(*cur == '"')) {
         val_incr();
         ctn_len++;
-        if (likely(read_str(&cur, eof, flg, val, &msg))) goto obj_key_end;
+        if (likely(read_str_opt('"', &cur, eof, flg, val, &msg,
+                                NULL, scan_long))) goto obj_key_end;
         goto fail_string;
     }
     if (likely(*cur == '}')) {
@@ -5759,7 +5802,8 @@ obj_val_begin:
     if (*cur == '"') {
         val++;
         ctn_len++;
-        if (likely(read_str(&cur, eof, flg, val, &msg))) goto obj_val_end;
+        if (likely(read_str_opt('"', &cur, eof, flg, val, &msg,
+                                NULL, scan_long))) goto obj_val_end;
         goto fail_string;
     }
     if (char_is_num(*cur)) {
@@ -6372,6 +6416,15 @@ fail_depth:             return_err(cur, DEPTH, MSG_DEPTH);
 
 
 
+#if YYJSON_READ_WORD_SCAN
+/** Compile the usual strict compact parser with constant semantic flags. */
+static_noinline yyjson_doc *read_root_compact(u8 *hdr, u8 *cur, u8 *eof,
+                                              yyjson_alc alc,
+                                              yyjson_read_err *err) {
+    return read_root_minify(hdr, cur, eof, alc, 0, err, true);
+}
+#endif
+
 /*==============================================================================
  * MARK: - JSON Reader (Public)
  *============================================================================*/
@@ -6441,7 +6494,18 @@ yyjson_doc *yyjson_read_opts(char *dat, usize len,
         if (char_is_space(cur[1]) && char_is_space(cur[2])) {
             doc = read_root_pretty(hdr, cur, eof, alc, flg, err);
         } else {
-            doc = read_root_minify(hdr, cur, eof, alc, flg, err);
+#if YYJSON_READ_WORD_SCAN
+            /* Use a bounded probe to keep escape-heavy input on the existing
+               path. The specialized parser still validates the whole input. */
+            if (likely(!(flg & ~YYJSON_READ_INSITU)) && eof - cur >= 128 &&
+                memchr(cur, '\\', 128) == NULL) {
+                doc = read_root_compact(hdr, cur, eof, alc, err);
+                if (doc && has_flg(INSITU)) doc->str_pool = NULL;
+            } else
+#endif
+            {
+                doc = read_root_minify(hdr, cur, eof, alc, flg, err, false);
+            }
         }
     } else {
         doc = read_root_single(hdr, cur, eof, alc, flg, err);
@@ -9879,11 +9943,11 @@ fail_depth: return_err(DEPTH, MSG_DEPTH);
 #undef check_str_len
 }
 
-static char *write_root(const yyjson_val *val,
-                        yyjson_write_flag flg,
-                        const yyjson_alc *alc_ptr,
-                        char *buf, usize *dat_len,
-                        yyjson_write_err *err) {
+static_inline char *write_root_impl(const yyjson_val *val,
+                                    yyjson_write_flag flg,
+                                    const yyjson_alc *alc_ptr,
+                                    char *buf, usize *dat_len,
+                                    yyjson_write_err *err) {
     yyjson_write_err tmp_err;
     usize tmp_dat_len;
     yyjson_alc alc = alc_ptr ? *alc_ptr : YYJSON_DEFAULT_ALC;
@@ -9907,6 +9971,43 @@ static char *write_root(const yyjson_val *val,
     } else {
         return (char *)write_root_minify(root, flg, alc, buf, dat_len, err);
     }
+}
+
+/* Dispatch once so the compiler can eliminate option checks from the
+   default writer without adding branches inside the general writer. */
+static_noinline char *write_root_default(const yyjson_val *val,
+                                         const yyjson_alc *alc_ptr,
+                                         char *buf, usize *dat_len,
+                                         yyjson_write_err *err) {
+    return write_root_impl(val, 0, alc_ptr, buf, dat_len, err);
+}
+
+static_noinline char *write_root_options(const yyjson_val *val,
+                                         yyjson_write_flag flg,
+                                         const yyjson_alc *alc_ptr,
+                                         char *buf, usize *dat_len,
+                                         yyjson_write_err *err) {
+    return write_root_impl(val, flg, alc_ptr, buf, dat_len, err);
+}
+
+static_noinline char *write_root_unicode(const yyjson_val *val,
+                                         const yyjson_alc *alc_ptr,
+                                         char *buf, usize *dat_len,
+                                         yyjson_write_err *err) {
+    return write_root_impl(val, YYJSON_WRITE_ESCAPE_UNICODE, alc_ptr,
+                           buf, dat_len, err);
+}
+
+static_inline char *write_root(const yyjson_val *val, yyjson_write_flag flg,
+                               const yyjson_alc *alc_ptr, char *buf,
+                               usize *dat_len, yyjson_write_err *err) {
+    if (likely(flg == 0)) {
+        return write_root_default(val, alc_ptr, buf, dat_len, err);
+    }
+    if (flg == YYJSON_WRITE_ESCAPE_UNICODE) {
+        return write_root_unicode(val, alc_ptr, buf, dat_len, err);
+    }
+    return write_root_options(val, flg, alc_ptr, buf, dat_len, err);
 }
 
 
